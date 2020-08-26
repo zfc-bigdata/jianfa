@@ -53,6 +53,34 @@ object DauApp {
       val dateTimeArr: Array[String] = dateTimeStr.split(" ")
       val dt: String = dateTimeArr(0)
       val hr: String = dateTimeArr(1)
+import com.atguigu.gmall0317.realtime.util.{MyKafkaUtil, RedisUtil}
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.spark.SparkConf
+import org.apache.spark.streaming.dstream.InputDStream
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+
+import scala.collection.mutable.ListBuffer
+
+object DauApp {
+
+  def main(args: Array[String]): Unit = {
+    val sparkConf = new SparkConf().setAppName("dau_app").setMaster("local[4]")
+    val ssc = new StreamingContext(sparkConf, Seconds(5))
+
+    val topic = "GMALL0317_STARTUP"
+    val groupId = "dau_app_group"
+
+    val inputDstream: InputDStream[ConsumerRecord[String, String]] = MyKafkaUtil.getKafkaStream(topic, ssc, groupId)
+
+    val jsonObjDstream = inputDstream.map { record =>
+      val jsonString = record.value()
+      val jsonObj = JSON.parseObject(jsonString)
+      val ts = jsonObj.getLong("ts")
+      val dateFormat = new SimpleDateFormat("yyyy-MM-dd HH")
+      val dateTimeStr = dateFormat.format(new Date(ts))
+      val dateTimeArr = dateTimeStr.split(" ")
+      val dt = dateTimeArr(0)
+      val hr = dateTimeArr(1)
       jsonObj.put("dt", dt)
       jsonObj.put("hr", hr)
       jsonObj
@@ -71,49 +99,12 @@ object DauApp {
         }
       }
       jedis.close()
-      println("过滤后："+filteredList.size )
+      println("过滤后：" + filteredList.size)
       filteredList.toIterator
     }
-
-
-/*    // 数据中 凡是今天启动过的用户(mid)进行记录，同时进行筛选如果之前访问过 则过滤掉
-    val jsonObjFilteredDStream: DStream[JSONObject] = jsonObjDstream.filter { jsonObj =>
-      // Redis  type？ string set hash zset list   key?     value
-      // string   key?  dau:[date]:mid:[mid]   value 1/0    api?  setnx  如果有需求：查询今天所有的mid  keys dau:[date]:mid:*  O(N)     可以分摊到多台机器中
-      // set     key ?  dau:[date]   value? [mid]    api?  sadd   如果有需求：查询今天所有的mid  smembers key O(1)  无法通过集群方式分摊数据和qps
-      // hash   key ? dau:[date]   value? [mid] :1    api? hash 可以但没必要
-      // zset   key?   dau:[date]   value? [mid] score  api? zadd  可以但没必要吗？
-      val jedis: Jedis = RedisUtil.getJedisClient // 1 连接池
-      val dauKey = "dau:" + jsonObj.get("dt")
-      val mid = jsonObj.getJSONObject("common").getString("mid")
-      val ifNonExists: lang.Long = jedis.sadd(dauKey, mid)
-      jedis.close()
-      if (ifNonExists == 1) {
-        true
-      } else {
-        false
-      }
-
-    }*/
-
-   // filteredDstream.print(100)
-
-    filteredDstream.foreachRDD{rdd=>
-      ///保存操作
-
-      //提交偏移量
-      OffsetManager.saveOffset(topic,groupId,offsetRanges)
-
-
-    }
-
-
-
+    filteredDstream.print(100)
 
     ssc.start()
     ssc.awaitTermination()
-
-
   }
-
 }
